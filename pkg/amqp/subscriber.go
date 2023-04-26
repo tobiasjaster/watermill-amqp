@@ -125,10 +125,6 @@ func (s *Subscriber) Subscribe(ctx context.Context, topic string) (<-chan *messa
 	routingKey := s.config.QueueBind.GenerateRoutingKey(topic)
 	logFields["amqp_routing_key"] = routingKey
 
-	if err := s.prepareConsume(queueName, exchangeName, routingKey, logFields); err != nil {
-		return nil, errors.Wrap(err, "failed to prepare consume")
-	}
-
 	s.subscriberWaitGroup.Add(1)
 	s.connectionWaitGroup.Add(1)
 
@@ -160,7 +156,7 @@ func (s *Subscriber) Subscribe(ctx context.Context, topic string) (<-chan *messa
 			case <-s.connected:
 				s.logger.Debug("Connection established in ReconnectLoop", logFields)
 				// runSubscriber blocks until connection fails or Close() is called
-				s.runSubscriber(ctx, out, queueName, exchangeName, logFields)
+				s.runSubscriber(ctx, out, queueName, routingKey, exchangeName, logFields)
 			case <-s.closing:
 				s.logger.Debug("Stopping ReconnectLoop (closing)", logFields)
 				break ReconnectLoop
@@ -230,6 +226,7 @@ func (s *Subscriber) runSubscriber(
 	ctx context.Context,
 	out chan *message.Message,
 	queueName string,
+	routingKey string,
 	exchangeName string,
 	logFields watermill.LogFields,
 ) {
@@ -243,6 +240,11 @@ func (s *Subscriber) runSubscriber(
 			s.logger.Error("Failed to close channel", err, logFields)
 		}
 	}()
+
+	if err := s.prepareConsume(queueName, exchangeName, routingKey, logFields); err != nil {
+		s.logger.Error("failed to prepare consume", err, logFields)
+		return
+	}
 
 	notifyCloseChannel := channel.NotifyClose(make(chan *amqp.Error, 1))
 
